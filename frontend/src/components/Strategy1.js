@@ -5,29 +5,31 @@ const Strategy1 = () => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Fetch data from Node.js backend
-        const response = await fetch('http://localhost:5000/data');
-        const result = await response.json();
-
-        if (response.ok) {
-          setData(result); // Set the data from the backend
-          setLoading(false);
-        } else {
-          console.error('Error fetching data:', result.error);
-          setLoading(false);
-        }
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        setLoading(false);
+  // Function to fetch data from the backend
+  const fetchData = async () => {
+    setLoading(true); // Show loading state while fetching
+    try {
+      const response = await fetch('http://localhost:5000/data');
+      const result = await response.json();
+      
+      if (response.ok) {
+        setData(result); // Set data from the backend
+      } else {
+        console.error('Error fetching data:', result.error);
       }
-    };
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false); // Hide loading state
+    }
+  };
 
+  // Fetch data on component mount
+  useEffect(() => {
     fetchData();
   }, []);
 
+  // Handle the 'Buy' action
   const handleBuy = async (row) => {
     try {
       const response = await fetch('http://localhost:5000/buy', {
@@ -41,7 +43,7 @@ const Strategy1 = () => {
           cmp: row.cmp,
         }),
       });
-  
+
       if (response.ok) {
         alert('Buy action completed successfully.');
       } else {
@@ -53,36 +55,44 @@ const Strategy1 = () => {
     }
   };
 
+  // Handle the 'Delete' action (from Google Sheets)
   const handleDelete = async (stockCode) => {
+    if (!window.confirm(`Are you sure you want to delete the stock with code: ${stockCode}?`)) {
+      return; // Exit if the user cancels the confirmation
+    }
+
     try {
       const response = await fetch(`http://localhost:5000/delete/${stockCode}`, {
         method: 'DELETE',
       });
-  
+
       const result = await response.json();
-  
+
       if (response.ok) {
-        // If the deletion is successful, remove the stock from the frontend state
-        setData(prevData => prevData.filter(item => item.stockCode !== stockCode));
-        alert('Deleted successfully.');
+        // If the deletion is successful, show a success message
+        alert('Stock deleted successfully.');
+
+        // Re-fetch the data from the backend to update the frontend table
+        fetchData();
       } else {
-        // If no matching data is found
-        alert(result.error || 'Failed to delete.');
+        // Handle backend errors
+        console.error('Error from server:', result.error);
+        alert(result.error || 'Failed to delete the stock. Please try again.');
       }
     } catch (error) {
+      // Handle unexpected errors like network issues
       console.error('Error during delete action:', error);
-      alert('An error occurred during the delete action.');
+      alert('An error occurred while attempting to delete the stock. Please try again later.');
     }
   };
-  
 
+  // Handle the 'Update' action
   const handleUpdate = (row) => {
-    // For simplicity, we are just logging the row to the console.
-    // You can open an update form or modal to edit the row data.
     console.log('Updating:', row);
     alert(`Updating row with stock code: ${row.stockCode}`);
   };
 
+  // Loading state check
   if (loading) {
     return <Typography variant="h6">Loading data...</Typography>;
   }

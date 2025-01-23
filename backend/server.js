@@ -19,7 +19,7 @@ const sheets = google.sheets('v4');
 
 // Authenticate with Google Sheets using service account
 const auth = new GoogleAuth({
-  keyFile: '../service.json', // Or load from environment
+  keyFile: './service.json', // Or load from environment
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
@@ -77,6 +77,12 @@ app.post('/buy', async (req, res) => {
     // Get the authenticated client
     const client = await auth.getClient();
 
+    // Check if the "buy" sheet exists
+    const sheetExists = await checkSheetExists('buy');
+    if (!sheetExists) {
+      return res.status(404).send({ message: 'Sheet "buy" not found.' });
+    }
+
     // Make a request to Google Sheets API to append data
     const response = await sheets.spreadsheets.values.append({
       auth: client,
@@ -95,31 +101,63 @@ app.post('/buy', async (req, res) => {
   }
 });
 
+// Function to check if a sheet exists by its name
+const checkSheetExists = async (sheetName) => {
+  try {
+    const client = await auth.getClient();
+    const response = await sheets.spreadsheets.get({
+      auth: client,
+      spreadsheetId,
+    });
+
+    const sheet = response.data.sheets.find((s) => s.properties.title === sheetName);
+    return sheet !== undefined;
+  } catch (error) {
+    console.error('Error checking sheet existence:', error);
+    return false;
+  }
+};
+
+// Endpoint to delete stock code
 app.delete('/delete/:stockCode', async (req, res) => {
-  const stockCode = req.params.stockCode; // e.g., NSE:EVINDIA
+  const stockCode = req.params.stockCode; // e.g., NSE:TOP100CASE
 
   try {
     // Authenticate with Google Sheets
     const client = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: client });
 
-    const range = 'buy!A:A'; // Assuming stock codes are in column A of the "buy" sheet
+    // Fetch the spreadsheet to check sheet existence
+    const response = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheetsList = response.data.sheets;
+    const sheet = sheetsList.find((s) => s.properties.title === 'buy');
 
-    // Fetch all stock codes from the sheet
-    const response = await sheets.spreadsheets.values.get({
+    if (!sheet) {
+      console.error('Sheet "buy" not found.');
+      return res.status(404).json({ error: 'Sheet "buy" not found.' });
+    }
+
+    const sheetId = sheet.properties.sheetId;
+
+    // Get all stock codes from column A in the "buy" sheet
+    const range = 'buy!A:A';
+    const stockCodesResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range,
     });
 
-    const stockCodes = response.data.values;
+    const stockCodes = stockCodesResponse.data.values || [];
 
     // Find the index of the stock code to delete
-    const indexToDelete = stockCodes.findIndex(row => row[0] === stockCode);
+    const indexToDelete = stockCodes.findIndex((row) => row[0] === stockCode);
 
     if (indexToDelete === -1) {
-      // Stock code not found
+      console.error('No matching stock code found to delete:', stockCode);
       return res.status(404).json({ error: 'No matching stock code found to delete.' });
     }
+
+    // Sheets API requires 1-based indexing for rows, so adjust the index
+    const deleteIndex = indexToDelete + 1; // Convert 0-based to 1-based index
 
     // Delete the row by its index (rows are 1-indexed in Sheets)
     const deleteRequest = {
@@ -129,10 +167,10 @@ app.delete('/delete/:stockCode', async (req, res) => {
           {
             deleteDimension: {
               range: {
-                sheetId: 0, // Default sheet ID; change if necessary
+                sheetId, // Use the dynamically fetched sheetId
                 dimension: 'ROWS',
-                startIndex: indexToDelete,
-                endIndex: indexToDelete + 1,
+                startIndex: deleteIndex - 1, // 0-based index
+                endIndex: deleteIndex, // End index is exclusive
               },
             },
           },
